@@ -1,0 +1,78 @@
+# =========================
+# CORE FRAMEWORKS
+# =========================
+langchain
+langchain-community
+langchain-core
+langgraph
+langsmith
+
+# =========================
+# LLM PROVIDERS
+# =========================
+openai
+groq
+tiktoken
+
+# =========================
+# BACKEND
+# =========================
+fastapi
+uvicorn
+pydantic
+python-dotenv
+
+# =========================
+# FRONTEND
+# =========================
+streamlit
+
+# =========================
+# DATABASE
+# =========================
+psycopg2-binary
+sqlalchemy
+alembic
+pgvector
+
+# =========================
+# RAG / NLP
+# =========================
+numpy
+pandas
+scikit-learn
+sentence-transformers
+faiss-cpu
+
+# =========================
+# DOCUMENT PROCESSING
+# =========================
+pypdf
+python-docx
+unstructured
+
+# =========================
+# WEB / TOOLS (AGENTS)
+# =========================
+requests
+httpx
+beautifulsoup4
+lxml
+
+# optional search tools
+duckduckgo-search
+
+# finance (for competitive agent)
+yfinance
+
+# =========================
+# MCP (Model Context Protocol)
+# =========================
+mcp
+
+# =========================
+# DEV / DEBUG
+# =========================
+ipykernel
+pytest
+loguru
