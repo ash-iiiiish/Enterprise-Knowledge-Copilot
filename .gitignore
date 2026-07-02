@@ -1,4 +1,5 @@
 roadmap.md
 *.pdf
 enterprisenv
-
+.env
+trial.ipynb
