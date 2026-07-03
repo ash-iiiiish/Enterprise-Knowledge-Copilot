@@ -1,16 +1,11 @@
-# =========================
-# CORE FRAMEWORKS
-# =========================
 langchain
 langchain-community
+langchain-groq
+langchain-huggingface
 langchain-core
 langgraph
 langsmith
 
-# =========================
-# LLM PROVIDERS
-# =========================
-openai
 groq
 tiktoken
 
