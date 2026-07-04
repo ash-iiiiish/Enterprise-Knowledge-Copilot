@@ -262,8 +262,12 @@ async def web_search_node(state: State) -> Dict[str, Any]:
 
 
 async def tool_route(state: State) -> Dict[str, Any]:
-    result = await mcp_client.route(state["question"])
-    return {"tool_results": result, "tool_context": str(result)}
+    envelope = await mcp_client.route(state["question"])
+    return {
+        "tool_results": envelope,
+        "tool_context": str(envelope.get("result", envelope)),
+        "tool_used": envelope.get("tool_used"),
+    }
 
 
 async def generate_from_tool(state: State) -> Dict[str, Any]:
@@ -277,6 +281,23 @@ async def generate_from_tool(state: State) -> Dict[str, Any]:
     return {"final_context": tool_context, "final_answer": out.content}
 
 
+async def stream_final_answer(state: State):
+    """Async generator yielding response text chunks as they're generated,
+    for endpoints that want to stream a typed-out answer instead of waiting
+    for the full completion. Must be called after retrieval/tool nodes have
+    already populated final_context (or rag_context/tool_context)."""
+    context = (
+        state.get("final_context")
+        or f"{state.get('rag_context', '')}\n{state.get('tool_context', '')}".strip()
+    )
+    messages = _RAG_GENERATION_PROMPT.format_messages(
+        question=_answer_question(state), context=context, history=_format_history(state)
+    )
+    async for chunk in get_llm().astream(messages):
+        if chunk.content:
+            yield chunk.content
+
+
 # --------------------------------------------------------------------------
 # Combined RAG + tools path
 # --------------------------------------------------------------------------
@@ -284,15 +305,16 @@ async def generate_from_tool(state: State) -> Dict[str, Any]:
 
 async def parallel_node(state: State) -> Dict[str, Any]:
     """Run retrieval and tool-calling concurrently instead of sequentially."""
-    docs, tool_result = await asyncio.gather(
+    docs, tool_envelope = await asyncio.gather(
         search_documents(state["question"], k=5),
         mcp_client.route(state["question"]),
     )
     return {
         "rag_docs": docs,
-        "tool_results": tool_result,
+        "tool_results": tool_envelope,
         "rag_context": "\n".join(d.page_content for d in docs),
-        "tool_context": str(tool_result),
+        "tool_context": str(tool_envelope.get("result", tool_envelope)),
+        "tool_used": tool_envelope.get("tool_used"),
     }
 
 
@@ -333,7 +355,8 @@ async def attach_sources(state: State) -> Dict[str, Any]:
     if state.get("rag_context"):
         sources.append("vector_db")
     if state.get("tool_context"):
-        sources.append("external_tools")
+        tool_used = state.get("tool_used")
+        sources.append(f"external_tools:{tool_used}" if tool_used else "external_tools")
     return {"sources": sources}
 
 

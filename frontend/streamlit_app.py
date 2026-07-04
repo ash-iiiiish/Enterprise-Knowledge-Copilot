@@ -11,10 +11,34 @@ starts a fresh thread.
 
 Run with:  streamlit run frontend/streamlit_app.py
 """
+import json
 import os
 
 import httpx
 import streamlit as st
+
+
+def _iter_sse_events(response: httpx.Response):
+    """Parse a text/event-stream response into (event, data) pairs. Each SSE
+    frame is 'event: <name>\\ndata: <json>\\n\\n'; this just accumulates
+    lines until a blank line closes a frame."""
+    event_name = None
+    data_lines = []
+    for raw_line in response.iter_lines():
+        line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8")
+        if line == "":
+            if event_name is not None:
+                try:
+                    payload = json.loads("\n".join(data_lines)) if data_lines else {}
+                except json.JSONDecodeError:
+                    payload = {}
+                yield event_name, payload
+            event_name, data_lines = None, []
+            continue
+        if line.startswith("event:"):
+            event_name = line[len("event:"):].strip()
+        elif line.startswith("data:"):
+            data_lines.append(line[len("data:"):].strip())
 
 
 def _get_backend_url() -> str:
@@ -61,6 +85,15 @@ def load_thread_messages(thread_id: str):
         return []
 
 
+def _tool_from_sources(sources):
+    """Sources look like ['external_tools:query_tickets'] since the backend
+    now tags which MCP tool ran; pull that back out for display."""
+    for s in sources or []:
+        if s.startswith("external_tools:"):
+            return s.split(":", 1)[1]
+    return None
+
+
 def select_thread(thread_id: str):
     st.session_state.active_thread_id = thread_id
     st.session_state.messages = [
@@ -68,7 +101,7 @@ def select_thread(thread_id: str):
             "role": m["role"],
             "content": m["content"],
             "sources": m.get("sources", []),
-            "verification": m.get("verification", ""),
+            "tool_used": _tool_from_sources(m.get("sources", [])),
         }
         for m in load_thread_messages(thread_id)
     ]
@@ -142,38 +175,63 @@ for msg in st.session_state.messages:
         if msg["role"] == "assistant":
             cols = st.columns(2)
             cols[0].caption(f"Sources: {', '.join(msg.get('sources', [])) or 'none'}")
-            cols[1].caption(f"Verified: {msg.get('verification') or 'n/a'}")
+            cols[1].caption(f"Tool used: {msg.get('tool_used') or 'none'}")
 
 question = st.chat_input("Ask about HR, engineering, compliance or onboarding docs...")
 
 if question:
     with st.chat_message("user"):
         st.write(question)
-    st.session_state.messages.append({"role": "user", "content": question, "sources": [], "verification": ""})
+    st.session_state.messages.append({"role": "user", "content": question, "sources": [], "tool_used": None})
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                resp = httpx.post(
-                    f"{API}/chat",
-                    json={"question": question, "thread_id": st.session_state.active_thread_id},
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                answer = data.get("answer", "")
-                sources = data.get("sources", [])
-                verification = data.get("verification", "")
-                st.session_state.active_thread_id = data.get("thread_id")
-            except Exception as exc:
-                answer, sources, verification = f"Error contacting backend: {exc}", [], ""
+        tool_badge = st.empty()
+        answer_area = st.empty()
+        answer = ""
+        sources = []
+        tool_used = None
 
-        st.write(answer)
+        try:
+            with httpx.stream(
+                "POST",
+                f"{API}/chat/stream",
+                json={"question": question, "thread_id": st.session_state.active_thread_id},
+                timeout=120,
+            ) as resp:
+                resp.raise_for_status()
+                for event, data in _iter_sse_events(resp):
+                    if event == "tool_call":
+                        tool_used = data.get("tool_used")
+                        args = data.get("arguments") or {}
+                        args_str = ", ".join(f"{k}={v}" for k, v in args.items() if v is not None)
+                        tool_badge.info(f"🔧 running `{tool_used}({args_str})`…")
+
+                    elif event == "token":
+                        answer += data.get("text", "")
+                        answer_area.markdown(answer + "▌")
+
+                    elif event == "done":
+                        sources = data.get("sources", [])
+                        tool_used = data.get("tool_used", tool_used)
+                        st.session_state.active_thread_id = data.get("thread_id")
+                        answer_area.markdown(answer)
+                        tool_badge.empty()
+
+                    elif event == "error":
+                        answer = f"Error: {data.get('detail', 'unknown error')}"
+                        answer_area.markdown(answer)
+                        tool_badge.empty()
+
+        except Exception as exc:
+            answer = f"Error contacting backend: {exc}"
+            answer_area.markdown(answer)
+            tool_badge.empty()
+
         cols = st.columns(2)
         cols[0].caption(f"Sources: {', '.join(sources) or 'none'}")
-        cols[1].caption(f"Verified: {verification or 'n/a'}")
+        cols[1].caption(f"Tool used: {tool_used or 'none'}")
 
     st.session_state.messages.append(
-        {"role": "assistant", "content": answer, "sources": sources, "verification": verification}
+        {"role": "assistant", "content": answer, "sources": sources, "tool_used": tool_used}
     )
     st.rerun()

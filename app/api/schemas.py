@@ -13,6 +13,7 @@ class ChatResponse(BaseModel):
     question: str
     answer: str
     sources: List[str] = []
+    tool_used: Optional[str] = None
     verification: str = ""
     thread_id: str
 

@@ -21,6 +21,7 @@ class State(TypedDict, total=False):
     rag_docs: List[Document]
     relevant_docs: List[Document]
     tool_results: Dict[str, Any]
+    tool_used: str  # name of the MCP tool that was actually invoked, if any
 
     # context assembly
     rag_context: str

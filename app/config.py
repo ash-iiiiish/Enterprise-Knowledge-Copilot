@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     # MCP
     mcp_sqlite_path: str = "enterprise_mcp.db"
+    # Used to resolve "my"/"me" in queries like "tickets assigned to me today"
+    # until real auth/session identity exists.
+    mcp_default_user_id: str = "E001"
 
     # Streamlit
     backend_url: str = "http://localhost:8000"
