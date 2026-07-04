@@ -221,6 +221,19 @@ curl -X POST http://localhost:8000/api/v1/chat \
 }
 ```
 
-## License
+## 👨‍💻 Contributors
+- [@ash-iiiiish](https://github.com/ash-iiiiish)
 
-Add your license here.
+
+## 🤝 Contributing
+Contributions are welcome! Fork this repository and submit a pull request.
+
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.............
+
+---
+
