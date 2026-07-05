@@ -5,6 +5,7 @@ created (titled from the question); if one is given, prior messages for
 that thread are loaded and fed into the graph as chat_history so follow-up
 questions resolve correctly.
 """
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException
@@ -12,12 +13,13 @@ from fastapi.responses import StreamingResponse
 
 from app.api.schemas import ChatRequest, ChatResponse
 from app.logging_config import logger
-from db.thread_repository import add_message, create_thread, get_messages
-from graph import nodes
-from graph.routing import route_decision
+from db.thread_repository import create_thread, get_messages
 from graph.workflow import get_app
 
 router = APIRouter(tags=["chat"])
+
+# Pause between word-chunks when "typing out" the final answer (seconds).
+_TYPING_DELAY = 0.02
 
 
 def _sse(event: str, data: dict) -> str:
@@ -62,20 +64,33 @@ async def chat(payload: ChatRequest) -> ChatResponse:
 
 @router.post("/chat/stream")
 async def chat_stream(payload: ChatRequest):
-    """Streaming counterpart to /chat: emits SSE events as the answer is
-    produced instead of waiting for the whole graph run.
+    """Streaming counterpart to /chat.
+
+    This drives the *same compiled graph* as /chat (`get_app().astream(...,
+    stream_mode="updates")`), so the CRAG relevance-grading loop and the
+    Self-RAG verification retry loop both run exactly as they do there -
+    nothing is skipped. `persist_turn` is a node in that graph, so it saves
+    the turn to the DB itself; this route doesn't write to the DB directly.
+
+    Streaming, not the retry loop, is the part that has to compromise: a
+    verification retry can only happen *after* a full answer has been
+    generated and checked, so we can't safely hand out raw LLM tokens as
+    they're produced - an answer that fails verification and gets rewritten
+    would otherwise already be sitting in the user's chat window. Instead,
+    intermediate graph steps are surfaced live as they complete (routing,
+    which tool ran, whether a retry/rewrite happened), and once the graph
+    reaches its final, *verified* answer, that text is sent as a sequence of
+    small "token" chunks with a short delay between them for a typed-out
+    feel - a simulated typing effect over a real, fully-verified answer,
+    rather than true token streaming over an unverified one.
 
     Event sequence:
       routing   -> {"query_type", "need_retrieval", "need_tools"}
-      tool_call -> {"tool_used", "arguments"}          (only if a tool ran)
-      token     -> {"text"}                             (repeated, typed answer)
-      done      -> {"sources", "verification", "thread_id"}
+      tool_call -> {"tool_used", "arguments"}       (whenever a tool runs, incl. on retries)
+      retry     -> {"stage"}                          (rewriting_query | web_search_fallback | revising_answer)
+      token     -> {"text"}                            (repeated, typed-out final answer)
+      done      -> {"sources", "tool_used", "verification", "thread_id"}
       error     -> {"detail"}
-
-    Note: this path skips the CRAG/Self-RAG rewrite-and-retry loop (it always
-    does a single retrieval/tool pass then streams the generation) so it can
-    start emitting tokens immediately. Use /chat when you need the fully
-    verified, retry-capable answer instead.
     """
 
     async def event_stream():
@@ -90,74 +105,63 @@ async def chat_stream(payload: ChatRequest):
                 thread_id = await create_thread(payload.question)
                 chat_history = []
 
-            state = {
+            inputs = {
                 "question": payload.question,
-                "original_question": payload.question,
                 "thread_id": thread_id,
                 "chat_history": chat_history,
             }
 
-            classify_update = await nodes.classify_query(state)
-            state.update(classify_update)
-            yield _sse(
-                "routing",
-                {
-                    "query_type": state.get("query_type"),
-                    "need_retrieval": state.get("need_retrieval", False),
-                    "need_tools": state.get("need_tools", False),
-                },
-            )
+            app = get_app()
+            final_state: dict = {}
+            seen_verify_failure = False
 
-            path = route_decision(state)
+            async for update in app.astream(inputs, stream_mode="updates"):
+                for node_name, node_output in update.items():
+                    final_state.update(node_output)
 
-            if path == "direct_path":
-                pass  # no retrieval/tool context needed before streaming
+                    if node_name == "classify_query":
+                        yield _sse(
+                            "routing",
+                            {
+                                "query_type": node_output.get("query_type"),
+                                "need_retrieval": node_output.get("need_retrieval", False),
+                                "need_tools": node_output.get("need_tools", False),
+                            },
+                        )
 
-            elif path == "retrieval_path":
-                state.update(await nodes.enterprise_retrieve(state))
-                state["relevant_docs"] = state.get("rag_docs", [])
+                    elif node_name in ("tool_route", "parallel_node") and node_output.get("tool_used"):
+                        tool_results = node_output.get("tool_results", {}) or {}
+                        yield _sse(
+                            "tool_call",
+                            {
+                                "tool_used": node_output["tool_used"],
+                                "arguments": tool_results.get("arguments", {}),
+                            },
+                        )
 
-            elif path == "tool_path":
-                state.update(await nodes.tool_route(state))
-                if state.get("tool_used"):
-                    yield _sse(
-                        "tool_call",
-                        {
-                            "tool_used": state["tool_used"],
-                            "arguments": state.get("tool_results", {}).get("arguments", {}),
-                        },
-                    )
+                    elif node_name == "rewrite_query":
+                        stage = "revising_answer" if seen_verify_failure else "rewriting_query"
+                        yield _sse("retry", {"stage": stage})
 
-            else:  # both_path
-                state.update(await nodes.parallel_node(state))
-                if state.get("tool_used"):
-                    yield _sse(
-                        "tool_call",
-                        {
-                            "tool_used": state["tool_used"],
-                            "arguments": state.get("tool_results", {}).get("arguments", {}),
-                        },
-                    )
+                    elif node_name == "web_search":
+                        yield _sse("retry", {"stage": "web_search_fallback"})
 
-            answer_chunks = []
-            async for chunk in nodes.stream_final_answer(state):
-                answer_chunks.append(chunk)
-                yield _sse("token", {"text": chunk})
+                    elif node_name == "verify_answer":
+                        seen_verify_failure = str(node_output.get("verification", "")).upper() != "YES"
 
-            final_answer = "".join(answer_chunks)
-            sources = []
-            if state.get("rag_context"):
-                sources.append("vector_db")
-            if state.get("tool_context"):
-                tool_used = state.get("tool_used")
-                sources.append(f"external_tools:{tool_used}" if tool_used else "external_tools")
-
-            await add_message(thread_id, role="user", content=payload.question)
-            await add_message(thread_id, role="assistant", content=final_answer, sources=sources)
+            final_answer = final_state.get("final_answer", "")
+            for word in final_answer.split(" "):
+                yield _sse("token", {"text": word + " "})
+                await asyncio.sleep(_TYPING_DELAY)
 
             yield _sse(
                 "done",
-                {"sources": sources, "tool_used": state.get("tool_used"), "thread_id": thread_id},
+                {
+                    "sources": final_state.get("sources", []),
+                    "tool_used": final_state.get("tool_used"),
+                    "verification": final_state.get("verification", ""),
+                    "thread_id": thread_id,
+                },
             )
 
         except Exception as exc:

@@ -206,6 +206,14 @@ if question:
                         args_str = ", ".join(f"{k}={v}" for k, v in args.items() if v is not None)
                         tool_badge.info(f"🔧 running `{tool_used}({args_str})`…")
 
+                    elif event == "retry":
+                        stage_labels = {
+                            "rewriting_query": "✏️ rewriting the search query…",
+                            "web_search_fallback": "🌐 falling back to web search…",
+                            "revising_answer": "🔁 answer didn't verify, revising…",
+                        }
+                        tool_badge.info(stage_labels.get(data.get("stage"), "🔁 retrying…"))
+
                     elif event == "token":
                         answer += data.get("text", "")
                         answer_area.markdown(answer + "▌")
