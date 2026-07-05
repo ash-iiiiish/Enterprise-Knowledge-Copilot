@@ -221,20 +221,19 @@ curl -X POST http://localhost:8000/api/v1/chat \
 }
 ```
 
-## Known limitations
+## 👨‍💻 Contributors
+- [@ash-iiiiish](https://github.com/ash-iiiiish)
 
-- **No real auth/session model** — "my"/"me" in ticket queries resolves to
-  a hardcoded `MCP_DEFAULT_USER_ID`, not an authenticated user.
-- **Router is keyword/stem-based, not LLM-driven** — `mcp_server/client.py`
-  uses Porter stemming for fast, deterministic routing rather than an LLM
-  tool-call; it covers the documented intents but won't generalize to
-  arbitrarily-phrased requests the way an LLM router would.
-- **Streaming mode skips the CRAG/Self-RAG retry loop** — `/chat/stream` does
-  a single retrieval/tool pass and streams immediately; use `/chat` when you
-  need the fully verified, retry-capable answer.
-- **Single-tenant knowledge base** — no per-department or per-corpus split
-  for ingested documents.
 
-## License
+## 🤝 Contributing
+Contributions are welcome! Fork this repository and submit a pull request.
 
-Add your license here.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.............
+
+---
+
