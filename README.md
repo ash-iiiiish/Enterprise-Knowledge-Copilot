@@ -1,7 +1,7 @@
 # Enterprise Knowledge Copilot
 
 An async, LangGraph-powered enterprise assistant that combines **RAG** over
-your own documents, **MCP tools** (tickets, employee lookup, company
+your own documents, **MCP tools** feature (tickets, employee lookup, company
 policies, internal knowledge), **Self-RAG / CRAG verification**, and a
 **Streamlit chat UI** with live tool visibility and streamed, typed-out
 answers.
