@@ -1,4 +1,4 @@
-# Enterprise Knowledge Copilotz
+# Enterprise Knowledge Copilotzz
 
 An async, LangGraph-powered enterprise assistant that combines **RAG** over
 your own documents, **MCP tools** feature (tickets, employee lookup, company
