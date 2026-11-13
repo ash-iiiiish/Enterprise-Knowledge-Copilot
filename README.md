@@ -123,3 +123,19 @@ pgvector enabled. Do not point test runs at your production or regular developme
 | `ingestion/` | Document loading and embedding |
 | `frontend/` | Web application |
 | `tests/` | Unit and database tests |
+
+## 👨‍💻 Contributors
+- [@ash-iiiiish](https://github.com/ash-iiiiish)
+
+
+## 🤝 Contributing
+Contributions are welcome! Fork this repository and submit a pull request.
+
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.............
+
+---
