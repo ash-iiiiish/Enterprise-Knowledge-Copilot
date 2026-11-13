@@ -1,225 +1,128 @@
 # Enterprise Knowledge Copilot
 
-An async, LangGraph-powered enterprise assistant that combines **RAG** over
-your own documents, **MCP tools** feature (tickets, employee lookup, company
-policies, internal knowledge), **Self-RAG / CRAG verification**, and a
-**Streamlit chat UI** with live tool visibility and streamed, typed-out
-answers.
+An AI assistant for company knowledge and task coordination. Ask questions about shared company
+documents, assign work in chat, and notify teammates when tasks change.
 
-```
-Question → Classify (LLM) → ┬─ direct_path      → general knowledge answer
-                             ├─ retrieval_path   → pgvector RAG (+ CRAG fallback to web search)
-                             ├─ tool_path        → MCP tools (tickets / policies / employees / knowledge)
-                             └─ both_path        → RAG + MCP tools, run in parallel, merged
-                                    ↓
-                          Self-RAG verification (retry loop, bounded)
-                                    ↓
-                         Answer + sources + persisted thread history
-```
+Built with **FastAPI**, **LangGraph**, **MCP**, and **PostgreSQL + pgvector**. The frontend is plain
+HTML, CSS, and JavaScript and is served by the application.
+
+## Screenshots
+
+<details>
+<summary>View the chatbot, team management, and knowledge base</summary>
+
+![Chatbot assigning tasks](demo_documents/demo_images_for_readme/1.png)
+
+![Team management](demo_documents/demo_images_for_readme/2.png)
+
+![Knowledge base](demo_documents/demo_images_for_readme/3.png)
+
+</details>
 
 ## Features
 
-- **Async LangGraph workflow** — every node is a coroutine; a single graph
-  run never blocks the event loop, so the FastAPI server serves concurrent
-  chats without threading hacks.
-- **Query classification** — an LLM decides per-question whether it needs
-  document retrieval, MCP tools, both, or neither (`graph/nodes.py:classify_query`).
-- **CRAG-style retrieval** — retrieved docs are graded for relevance; if none
-  are relevant, the query is rewritten and a web search fills the gap, with a
-  bounded retry loop (`app.config.max_verification_retries`).
-- **Self-RAG verification** — the final answer is checked against its
-  context before being shipped; unverified answers trigger a rewrite/retry.
-- **MCP tool layer** (via [FastMCP](https://github.com/jlowin/fastmcp)):
-  - `create_ticket` — raise a ticket (title, description, priority, assignee)
-  - `list_tickets` — unfiltered ticket listing
-  - `query_tickets` — filtered ticket search (assignee, creator, status,
-    priority, date range — e.g. "tickets assigned by me today")
-  - `get_employee_details` — employee lookup
-  - `fetch_company_policy` — leave / WFH / notice-period policy lookup
-  - `search_internal_knowledge` — onboarding / security / VPN knowledge base
-  - `web_search` — DuckDuckGo fallback for anything else
-- **Stemming-based tool router** (`mcp_server/client.py`) — a lightweight,
-  non-LLM router that separates CREATE vs LIST vs QUERY ticket intents (so
-  "show open tickets" doesn't accidentally create a ticket) and parses
-  "today"/"yesterday", "assigned to me" vs "assigned by me", status, and
-  priority straight out of the query text.
-- **Tool-use transparency** — every MCP call returns `{tool_used, arguments,
-  result}`, surfaced end-to-end through the API response and the Streamlit
-  UI as a live "🔧 running `tool_name(args)`" badge.
-- **Streaming, typed-out answers** — `POST /chat/stream` (SSE) streams
-  routing info, the tool call (if any), and the answer token-by-token via
-  `llm.astream()`.
-- **Persistent chat threads** — conversations are stored in Postgres and
-  browsable/resumable from the sidebar.
-- **PDF ingestion** — upload PDFs, which are chunked, embedded, and stored
-  in pgvector for retrieval.
+- **Chat-based task management:** assign tasks to people, departments, or the whole company.
+- **Company knowledge base:** upload PDF, TXT, and Markdown files for shared, source-grounded answers.
+- **Role-based access:** HR, managers, and employees have different task and team permissions.
+- **Task board and notifications:** track task status in the UI; receive in-app notifications and
+  optional email updates and reminders.
+- **Private chat history:** conversations are scoped to the signed-in user.
 
-## Tech stack
+## Quick start
 
-| Layer          | Tech |
-|----------------|------|
-| Orchestration  | [LangGraph](https://github.com/langchain-ai/langgraph) (async) |
-| LLM            | [Groq](https://groq.com/) via `langchain-groq` |
-| Embeddings     | `sentence-transformers/all-MiniLM-L6-v2` via `langchain-huggingface` |
-| Vector store   | PostgreSQL + [pgvector](https://github.com/pgvector/pgvector) |
-| Chat/thread DB | PostgreSQL via SQLAlchemy (async, `asyncpg`) |
-| MCP tools      | [FastMCP](https://github.com/jlowin/fastmcp) + SQLite (`aiosqlite`) |
-| API            | FastAPI |
-| Frontend       | Streamlit |
-| Web search     | `duckduckgo-search` |
+### Docker Compose
+
+1. Copy `.env.example` to `.env`.
+   - PowerShell: `Copy-Item .env.example .env`
+   - macOS/Linux: `cp .env.example .env`
+2. Set `GROQ_API_KEY`, `SECRET_KEY`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `.env`.
+3. Start the app:
+
+   ```sh
+   docker compose up --build
+   ```
+
+4. Open <http://localhost:8000>. Interactive API documentation is at <http://localhost:8000/docs>.
+
+Compose starts PostgreSQL with pgvector and the web application. If host port `5432` is already
+in use, remove the `db` service's `ports` mapping in `docker-compose.yml` (the app can reach the
+database over Compose's internal network), or change the host side of the mapping, for example to
+`5433:5432`.
+
+### Local Python
+
+Requires Python 3.11+ and PostgreSQL with the pgvector extension.
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+# Configure GROQ_API_KEY, DATABASE_URL, SECRET_KEY, ADMIN_EMAIL, and ADMIN_PASSWORD in .env.
+uvicorn app.main:app --reload
+```
+
+For macOS/Linux, activate the environment with `source .venv/bin/activate` and copy the
+configuration with `cp .env.example .env`.
+
+## Accounts and access
+
+- Configure `ADMIN_EMAIL` and `ADMIN_PASSWORD` to create or refresh the HR administrator on startup.
+- Self-registration creates employee accounts only. Set `ALLOW_SIGNUP=false` to make account creation
+  HR-managed.
+- Demo-user seeding is disabled by default. Keep `SEED_DEMO_USERS=false` outside private demos.
+- HR can add team members and deactivate accounts from the **Team** page. Existing demo users in a
+  database are not removed automatically.
+
+New team members need an initial password. The app does not currently send invitations or provide a
+password-reset flow.
+
+## Email notifications
+
+Email is optional and is used for task assignments, task updates, and due-date reminders—not account
+invitations. Configure the following values in `.env`:
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-sender@gmail.com
+SMTP_PASSWORD=your-provider-app-password
+SMTP_FROM=your-sender@gmail.com
+APP_PUBLIC_URL=https://your-app.example.com
+```
+
+Port `587` uses STARTTLS. For Gmail, use an App Password rather than your regular account password.
+Restart/recreate the app after changing environment settings. Keep `.env` private and never commit
+real credentials.
+
+## Configuration
+
+See [`.env.example`](.env.example) for available settings. Set a stable, private `SECRET_KEY` in any
+non-local deployment. The app needs a Groq API key; `DATABASE_URL` is required when running outside
+Docker Compose. Optional email delivery requires SMTP settings.
+
+## Tests
+
+Run the unit tests with:
+
+```sh
+pytest
+```
+
+Database tests require `TEST_DATABASE_URL` to point to a disposable PostgreSQL database with
+pgvector enabled. Do not point test runs at your production or regular development database.
 
 ## Project structure
 
-```
-app/
-  main.py                FastAPI app + router registration
-  config.py               Centralized settings (env-driven)
-  logging_config.py
-  api/
-    routes_chat.py         POST /chat, POST /chat/stream (SSE)
-    routes_ingest.py        POST /ingest (PDF upload)
-    routes_threads.py       Thread history endpoints
-    schemas.py               Pydantic request/response models
-
-graph/
-  state.py                 Shared LangGraph state (TypedDict)
-  nodes.py                  All node implementations (classify, retrieve,
-                            grade, generate, tool routing, verify, persist)
-  routing.py                 Pure conditional-edge decision functions
-  workflow.py                 Builds + compiles the LangGraph graph
-
-mcp_server/
-  server.py                 FastMCP server: tool definitions + SQLite schema
-  client.py                  Stemming-based router + tool-call wrapper
-
-core/
-  llm.py                    Cached ChatGroq client
-  embeddings.py              Cached HuggingFace embeddings client
-  text_processing.py          Porter-stemmer helpers for keyword routing
-
-db/
-  models.py                 SQLAlchemy models (documents, threads, messages)
-  session.py                  Async engine/session factory
-  vector_repository.py         pgvector similarity search + storage
-  thread_repository.py          Thread/message CRUD
-
-ingestion/
-  pdf_ingestor.py            PDF → chunks → embeddings → pgvector
-  web_search.py                Async DuckDuckGo wrapper
-
-frontend/
-  streamlit_app.py           Chat UI: history sidebar, PDF upload,
-                              streamed answers with live tool badge
-```
-
-## Setup
-
-### Prerequisites
-
-- Python 3.12+
-- PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector)
-  extension enabled
-- A [Groq API key](https://console.groq.com/)
-
-### 1. Install dependencies
-
-```bash
-pip install -r requirements.txt
-# or, if using uv/pyproject per-package:
-pip install -e .
-```
-
-> The `mcp_server/` FastMCP layer only needs `fastmcp` and `aiosqlite`; the
-> rest of the app's dependencies (`langgraph`, `langchain-groq`,
-> `langchain-huggingface`, `sqlalchemy[asyncio]`, `asyncpg`, `pgvector`,
-> `fastapi`, `uvicorn`, `streamlit`, `httpx`, `duckduckgo-search`, `nltk`)
-> are used across `app/`, `graph/`, `core/`, `db/`, `ingestion/`.
-
-### 2. Configure environment
-
-Create a `.env` file in the repo root:
-
-```env
-# LLM
-GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama-3.3-70b-versatile
-
-# Embeddings
-EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-EMBEDDING_DIM=384
-
-# Postgres (must have the pgvector extension enabled)
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ai_db
-
-# App
-APP_HOST=0.0.0.0
-APP_PORT=8000
-LOG_LEVEL=INFO
-MAX_VERIFICATION_RETRIES=2
-
-# MCP (SQLite, separate from the Postgres knowledge base)
-MCP_SQLITE_PATH=enterprise_mcp.db
-MCP_DEFAULT_USER_ID=E001
-
-# Streamlit
-BACKEND_URL=http://localhost:8000
-```
-
-### 3. Enable pgvector on your Postgres database
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-Tables (`documents`, `threads`, `messages`) are created automatically by
-SQLAlchemy on first use; the MCP `tickets`/`employees` tables (SQLite) are
-created and migrated automatically on first tool call.
-
-### 4. Run the backend
-
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 5. Run the frontend
-
-```bash
-streamlit run frontend/streamlit_app.py
-```
-
-Then open the Streamlit URL it prints (typically `http://localhost:8501`).
-
-## API reference
-
-| Method | Path                              | Description |
-|--------|-----------------------------------|--------------|
-| GET    | `/health`                         | Health check |
-| POST   | `/api/v1/chat`                    | Ask a question; returns the full verified answer, sources, and which tool ran |
-| POST   | `/api/v1/chat/stream`             | Same as above, but streamed as SSE (`routing` → `tool_call` → `token`× N → `done`). Skips the CRAG retry loop to start streaming immediately. |
-| POST   | `/api/v1/ingest`                  | Upload one or more PDFs to embed into the knowledge base |
-| GET    | `/api/v1/threads`                 | List chat threads |
-| GET    | `/api/v1/threads/{id}/messages`   | Get a thread's message history |
-| PATCH  | `/api/v1/threads/{id}`            | Rename a thread |
-| DELETE | `/api/v1/threads/{id}`            | Delete a thread |
-
-### Example: `/api/v1/chat`
-
-```bash
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "show tickets assigned to me today"}'
-```
-
-```json
-{
-  "question": "show tickets assigned to me today",
-  "answer": "...",
-  "sources": ["external_tools:query_tickets"],
-  "tool_used": "query_tickets",
-  "verification": "YES",
-  "thread_id": "..."
-}
-```
+| Directory | Purpose |
+|---|---|
+| `app/` | FastAPI application, configuration, authentication, and API routes |
+| `db/` | PostgreSQL models and repositories |
+| `graph/` | LangGraph workflow and state |
+| `mcp_server/` | MCP task and employee tools |
+| `ingestion/` | Document loading and embedding |
+| `frontend/` | Web application |
+| `tests/` | Unit and database tests |
 
 ## 👨‍💻 Contributors
 - [@ash-iiiiish](https://github.com/ash-iiiiish)
@@ -236,4 +139,3 @@ Contributions are welcome! Fork this repository and submit a pull request.
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.............
 
 ---
-

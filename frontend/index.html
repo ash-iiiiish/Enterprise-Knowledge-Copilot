@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enterprise Copilot — your company's AI teammate</title>
+  <meta name="description" content="Assign tasks, notify your team and get verified answers from company documents — all from one chat." />
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+
+  <header class="site-header" id="siteHeader">
+    <div class="container header-inner">
+      <a class="brand" href="#/" id="brand" aria-label="Enterprise Copilot home"></a>
+
+      <nav class="nav" id="nav" aria-label="Main">
+        <a href="#/" data-nav="home">Home</a>
+        <a href="#/" data-scroll="why">Why Copilot</a>
+        <a href="#/" data-scroll="how">How it works</a>
+        <div class="nav-dd" id="workspaceMenu">
+          <button class="nav-dd-btn" type="button" aria-haspopup="true" aria-expanded="false">Workspace <span class="caret"></span></button>
+          <div class="nav-dd-panel" role="menu">
+            <a href="#/chat" data-nav="chat" role="menuitem">Chatbot</a>
+            <a href="#/tasks" data-nav="tasks" role="menuitem">Tasks</a>
+            <a href="#/knowledge" data-nav="knowledge" role="menuitem">Knowledge base</a>
+            <a href="#/team" data-nav="team" role="menuitem" data-roles="hr manager">Team</a>
+          </div>
+        </div>
+        <a href="#/" data-scroll="faq">FAQ</a>
+      </nav>
+
+      <div class="header-actions" id="headerActions"></div>
+      <button class="burger" id="burger" type="button" aria-label="Open menu" aria-expanded="false"></button>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <footer class="site-footer" id="siteFooter"></footer>
+
+  <button class="to-top" id="toTop" type="button" aria-label="Back to top"></button>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div id="modalRoot"></div>
+
+  <script src="/static/vendor/marked.min.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
