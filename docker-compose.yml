@@ -1,5 +1,6 @@
-version: "3.9"
-
+# One command to run everything:  docker compose up --build
+# Then open http://localhost:8000 and sign in with the configured HR account.
+# Put GROQ_API_KEY (and optionally SECRET_KEY) in a .env file next to this one.
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -12,30 +13,37 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  backend:
+  app:
     build: .
     restart: unless-stopped
-    env_file: .env
     environment:
-      DATABASE_URL: DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ai_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/ai_db
+      GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY in a .env file}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-HR Admin}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-  frontend:
-    build: .
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      BACKEND_URL: http://backend:8000
-    depends_on:
-      - backend
-    ports:
-      - "8501:8501"
-    command: streamlit run frontend/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
 
 volumes:
   pgdata:

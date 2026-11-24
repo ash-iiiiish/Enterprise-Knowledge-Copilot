@@ -40,3 +40,10 @@ def test_verify_answer_function_not_verified():
 
 def test_verify_answer_function_caps_retries():
     assert verify_answer_function({"verification": "NO", "retry_count": 99}) == "verified"
+
+
+def test_write_tools_skip_verification():
+    # Assigning/updating a task has no document to ground against and must never be retried.
+    state = {"tool_used": "assign_task", "verification": "NO", "retry_count": 0}
+    assert verify_answer_function(state) == "verified"
+    assert verify_answer_function({**state, "tool_used": "query_tasks"}) == "not_verified"

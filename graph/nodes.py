@@ -28,6 +28,7 @@ from graph.state import State
 from ingestion.web_search import duckduckgo_search
 from mcp_server.client import mcp_client
 
+UI_CARD_TOOLS = {"assign_task", "query_tasks", "update_task"}  # results the UI renders as cards
 MAX_HISTORY_TURNS = 6  # last N messages folded into prompts, to bound token usage
 
 
@@ -86,8 +87,10 @@ _CLASSIFY_PROMPT = ChatPromptTemplate.from_messages(
             "tool_needed | both_needed.\n"
             "Rules:\n"
             "- If internal enterprise documents are needed -> need_retrieval = true\n"
-            "- If external tools/APIs (tickets, employee lookup, policies) are needed "
-            "-> need_tools = true\n"
+            "- If external tools are needed -> need_tools = true. Tools cover: assigning, "
+            "delegating or reminding someone about a task, listing/updating tasks "
+            "(mine, ones I assigned, overdue, done), employee lookup, company policies "
+            "and the internal knowledge base.\n"
             "- If both are needed, both must be true.\n"
             "Use the conversation history only to resolve follow-up questions "
             "(e.g. pronouns, 'the second one').\n"
@@ -262,7 +265,7 @@ async def web_search_node(state: State) -> Dict[str, Any]:
 
 
 async def tool_route(state: State) -> Dict[str, Any]:
-    envelope = await mcp_client.route(state["question"])
+    envelope = await mcp_client.route(state["question"], state["user"])
     return {
         "tool_results": envelope,
         "tool_context": str(envelope.get("result", envelope)),
@@ -270,14 +273,42 @@ async def tool_route(state: State) -> Dict[str, Any]:
     }
 
 
+_TOOL_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a friendly workplace assistant replying to {user_name}. A tool just ran on "
+            "their behalf; its JSON result is below. Write a short, natural reply.\n"
+            "- If the result has an 'error', say plainly what went wrong and what they can do "
+            "(e.g. which person they meant). Do not pretend it worked.\n"
+            "- If tasks were assigned, confirm who got what and by when, and say the "
+            "people were notified (the 'notified' list). Mention task numbers like #12.\n"
+            "- If tasks were listed, give a one-line summary (counts, anything overdue). The "
+            "interface already shows the task cards, so do not repeat every detail.\n"
+            "- If a task was updated, say what changed and who was told.\n"
+            "- Use only facts in the result. Keep it under 80 words.",
+        ),
+        ("human", "{history}\n\nRequest: {question}\nTool result: {context}"),
+    ]
+)
+
+
 async def generate_from_tool(state: State) -> Dict[str, Any]:
     """Turn a raw MCP tool result into a natural-language answer."""
     tool_context = state.get("tool_context", "")
-    out = await get_llm().ainvoke(
-        _RAG_GENERATION_PROMPT.format_messages(
+    user = state.get("user", {})
+    if state.get("tool_used") in UI_CARD_TOOLS:
+        prompt = _TOOL_ANSWER_PROMPT.format_messages(
+            user_name=user.get("name", "there"),
+            question=_answer_question(state),
+            context=tool_context,
+            history=_format_history(state),
+        )
+    else:
+        prompt = _RAG_GENERATION_PROMPT.format_messages(
             question=_answer_question(state), context=tool_context, history=_format_history(state)
         )
-    )
+    out = await get_llm().ainvoke(prompt)
     return {"final_context": tool_context, "final_answer": out.content}
 
 
@@ -307,7 +338,7 @@ async def parallel_node(state: State) -> Dict[str, Any]:
     """Run retrieval and tool-calling concurrently instead of sequentially."""
     docs, tool_envelope = await asyncio.gather(
         search_documents(state["question"], k=5),
-        mcp_client.route(state["question"]),
+        mcp_client.route(state["question"], state["user"]),
     )
     return {
         "rag_docs": docs,
@@ -366,11 +397,14 @@ async def persist_turn(state: State) -> Dict[str, Any]:
     thread_id = state["thread_id"]
 
     await add_message(thread_id, role="user", content=_answer_question(state))
+    envelope = state.get("tool_results") or {}
     await add_message(
         thread_id,
         role="assistant",
         content=state.get("final_answer", ""),
         sources=state.get("sources", []),
         verification=state.get("verification", ""),
+        tool_used=state.get("tool_used"),
+        tool_result=envelope.get("result") if state.get("tool_used") in UI_CARD_TOOLS else None,
     )
     return {}

@@ -7,7 +7,10 @@ from typing import List
 
 def _search_sync(query: str, max_results: int) -> List[str]:
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
     except ImportError:
         return ["duckduckgo-search not installed; web search unavailable."]
 

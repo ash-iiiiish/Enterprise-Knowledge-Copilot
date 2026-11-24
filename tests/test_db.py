@@ -1,13 +1,13 @@
-"""Smoke test for the async DB engine wiring (skipped if no DB is reachable)."""
+"""Smoke test for the async DB engine wiring (skipped if no DB is configured)."""
 import pytest
+from sqlalchemy import text
 
-from db.session import engine
+from tests.conftest import needs_db
 
 
-@pytest.mark.asyncio
-async def test_engine_connects():
-    try:
-        async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
-    except Exception as exc:  # pragma: no cover - environment dependent
-        pytest.skip(f"No database reachable in this environment: {exc}")
+@needs_db
+async def test_engine_connects(schema):
+    from db.session import engine
+
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("SELECT 1"))).scalar_one() == 1

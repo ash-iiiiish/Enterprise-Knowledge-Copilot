@@ -8,6 +8,9 @@ class State(TypedDict, total=False):
     question: str
     original_question: str  # preserved even if CRAG rewrites `question` for search
 
+    # who is asking (id, employee_id, name, role) - set by the API, never by the LLM
+    user: Dict[str, str]
+
     # conversation / thread continuity
     thread_id: str
     chat_history: List[Dict[str, str]]  # [{"role": "user"|"assistant", "content": "..."}]

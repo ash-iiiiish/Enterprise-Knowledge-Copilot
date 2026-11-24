@@ -2,6 +2,7 @@
 Kept separate from graph/nodes.py so the branching logic is easy to unit test."""
 from app.config import settings
 from graph.state import State
+from mcp_server.server import WRITE_TOOLS
 
 
 def route_decision(state: State) -> str:
@@ -36,6 +37,10 @@ def route_after_relevance(state: State) -> str:
 def verify_answer_function(state: State) -> str:
     """Self-RAG verification fork: accept the answer, or loop back to
     rewrite/retry if the LLM says the answer isn't grounded in context."""
+    if state.get("tool_used") in WRITE_TOOLS:
+        # Assigning/updating a task is an action, not a claim about documents:
+        # there is nothing to ground it against, and it must never be retried.
+        return "verified"
     verification = state.get("verification", "").lower()
     retry_count = state.get("retry_count", 0)
 
