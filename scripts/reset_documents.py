@@ -1,6 +1,5 @@
 """
 One-off async script to drop and recreate ONLY the `documents` table.
-One-off async script to drop and recreate ONLY the `documents` table.      
 
 Use this when you see errors like:
     asyncpg.exceptions.UndefinedColumnError: column documents.created_at does not exist
